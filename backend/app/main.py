@@ -1,12 +1,50 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from typing import List
+from fastapi.middleware.cors import CORSMiddleware
 
 from . import models, schemas, database
 
 app = FastAPI()
 
 models.Base.metadata.create_all(bind=database.engine)
+
+# Настройка CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"], #Разрешаем запросы с этого адреса, чтобы  CORS нам не мешал
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+#Хранение активных соединений
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            await connection.send_json(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Обработка входящих сообщений от клиента, пока что ничего
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 
 # Dependency для получения сессии БД
 def get_db():
@@ -16,17 +54,99 @@ def get_db():
     finally:
         db.close()
 
+
+def init_db():
+    db: Session = database.SessionLocal()
+    db.query(models.Rail).delete()
+    db.commit()
+
+    # Проверяем, есть ли уже данные в таблице
+    #rails_count = db.query(models.Rail).count()
+    #if rails_count > 0:
+    #    db.close()
+    #    return  # Данные уже инициализированы
+    number = 50
+
+    # Создаём список рельсов
+    rails_data = [
+        {
+            "id": "1",
+            "connections": [],
+            "status": "inactive",
+            "coordinates": {"x1": 100, "y1": 100, "x2": 100, "y2": 400}
+        },
+        {
+            "id": "2",
+            "connections": [],
+            "status": "inactive",
+            "coordinates": {"x1": 100 + number * 1, "y1": 100, "x2": 100 + number * 1, "y2": 400}
+        },
+        {
+            "id": "3",
+            "connections": [""],
+            "status": "inactive",
+            "coordinates": {"x1": 100 + number * 2, "y1": 100, "x2": 100 + number * 2, "y2": 400}
+        },
+        {
+            "id": "4",
+            "connections": ["3"],   
+            "status": "inactive",    
+            "coordinates": {"x1": 100 + number * 2, "y1": 100, "x2": 150 + number * 3, "y2": 400},
+            "is_curve": True
+        },
+        {
+            "id": "5",
+            "connections": ["3"],   
+            "status": "inactive",    
+            "coordinates": {"x1": 100 + number * 2, "y1": 200, "x2": 100 + number * 3, "y2": 400},
+            "is_curve": True
+        },
+        {
+            "id": "6",
+            "connections": [],
+            "status": "inactive",
+            "coordinates": {"x1": 200 + number * 3, "y1": 100, "x2": 200 + number * 3, "y2": 400}
+        },
+        {
+            "id": "7",
+            "connections": [],   
+            "status": "inactive",    
+            "coordinates": {"x1": 200 + number * 4, "y1": 100, "x2": 200 + number * 4, "y2": 400}
+        },
+        {
+            "id": "8",
+            "connections": [],   
+            "status": "inactive",
+            "coordinates": {"x1": 200 + number * 5, "y1": 100, "x2": 200 + number * 5, "y2": 400}
+        }
+    ]
+
+    # Добавляем рельсы в базу данных
+    for rail_data in rails_data:
+        rail = models.Rail(
+            id=rail_data["id"],
+            connections=rail_data["connections"],
+            status=rail_data["status"],
+            coordinates=rail_data["coordinates"]
+        )
+        db.add(rail)
+    db.commit()
+    db.close()
+
+init_db()
+
 @app.get("/rails", response_model=List[schemas.Rail])
 def get_rails(db: Session = Depends(get_db)):
     rails = db.query(models.Rail).all()
     return rails
 
 @app.put("/rails/{rail_id}/status")
-def update_rail_status(rail_id: str, status: str, db: Session = Depends(get_db)):
+async def update_rail_status(rail_id: str, status: str, db: Session = Depends(get_db)):
     rail = db.query(models.Rail).filter(models.Rail.id == rail_id).first()
-    if rail:
-        rail.status = status
-        db.commit()
-        return {"message": "Status updated"}
-    else:
+    if not rail:
         raise HTTPException(status_code=404, detail="Rail not found")
+    rail.status = status
+    db.commit()
+    # Отправляем обновление всем клиентам
+    await manager.broadcast({"type": "update", "rail_id": rail_id, "status": status})
+    return {"message": "Status updated"}

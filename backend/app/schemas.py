@@ -12,6 +12,7 @@ class Rail(BaseModel):
     connections: List[str]
     status: str
     coordinates: Coordinates
+    is_curve: bool = True
 
     class Config:
         orm_mode = True
