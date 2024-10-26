@@ -21,4 +21,4 @@
 1. Клонируйте репозиторий проекта:
 
    ```bash
-   git clone https://NothingToThink/rzhd-detecton
+   git clone https://NothingToThink/rzd-detecton
