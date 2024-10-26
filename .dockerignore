@@ -1,0 +1,14 @@
+# Общие исключения
+**/__pycache__
+**/*.py[cod]
+**/*.swp
+**/.DS_Store
+
+# Исключения для Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Исключения для Python
+*.env
+.env
