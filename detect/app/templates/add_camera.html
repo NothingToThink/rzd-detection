@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Добавить камеру</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f7fc;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 2rem;
+            color: #4a90e2;
+        }
+
+        form {
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: #4a90e2;
+            outline: none;
+        }
+
+        button {
+            display: inline-block;
+            width: 100%;
+            padding: 12px 20px;
+            background-color: #4a90e2;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #357ABD;
+        }
+
+        #result {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+
+        #result p {
+            color: #333;
+        }
+
+        #result p.error {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Добавить камеру</h1>
+        <form id="cameraForm">
+            <label for="name">Имя камеры:</label>
+            <input type="text" id="name" name="name" required>
+            <br>
+            <label for="source">Источник:</label>
+            <input type="text" id="source" name="source" required>
+            <br>
+            <button type="submit">Добавить</button>
+        </form>
+        
+        <div id="result"></div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('cameraForm');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(form);
+            const data = {
+                name: formData.get('name'),
+                source: formData.get('source')
+            };
+            
+            const response = await fetch('/camera/add?name=' + data.name + '&source=' + data.source, {
+                method: 'POST'
+            });
+            
+            const result = document.getElementById('result');
+            if (response.ok) {
+                const json = await response.json();
+                result.innerHTML = `<p>${json.message}</p>`;
+            } else {
+                const error = await response.json();
+                result.innerHTML = `<p class="error">Error: ${error.detail}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
