@@ -2,10 +2,40 @@ from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconn
 from sqlalchemy.orm import Session
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
+import cv2
+import asyncio
+import threading
+from processor import RailwayTrack
+from tracker import EuclideanDistTracker
+import time
+import logging
 
 from . import models, schemas, database
 
-app = FastAPI()
+
+# Запускаем модель при старте приложения
+async def run_video_processing_async():
+    await asyncio.to_thread(run_video_processing)
+
+async def lifespan(app: FastAPI):
+    print("i am lifespan")
+    # Запуск фоновой задачи обработки видео
+    video_task = asyncio.create_task(run_video_processing_async())
+        
+    yield
+    
+    # Действия при завершении приложения
+    print("Приложение завершилось")
+    
+    # Отмена фоновой задачи при завершении приложения
+    video_task.cancel()
+    try:
+        await video_task
+    except asyncio.CancelledError:
+        print("Фоновая задача обработки видео была отменена")
+
+
+app = FastAPI(lifespan=lifespan)
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -56,6 +86,7 @@ def get_db():
 
 
 def init_db():
+    print("im hereL init_db")
     db: Session = database.SessionLocal()
     db.query(models.Rail).delete()
     db.commit()
@@ -135,8 +166,65 @@ def init_db():
 
 init_db()
 
+# Функция обратного вызова при изменении статуса пути
+def on_status_change(rail_id, status):
+    db: Session = database.SessionLocal()
+    rail = db.query(models.Rail).filter(models.Rail.id == str(rail_id)).first()
+    if rail:
+        rail.status = status
+        db.commit()
+        # Отправляем обновление всем клиентам через WebSocket
+        rails = db.query(models.Rail).all()
+        rails_data = [schemas.Rail.from_orm(r).dict() for r in rails]
+        # Используем asyncio.create_task для запуска корутины из синхронного кода
+        asyncio.create_task(manager.broadcast({"type": "update", "rails": rails_data}))
+    db.close()
+
+# Функция для запуска обработки видео
+def run_video_processing():
+    # Создаем объекты RailwayTrack
+    track_5 = RailwayTrack(
+        5,
+        EuclideanDistTracker(),
+        EuclideanDistTracker(),
+        cv2.createBackgroundSubtractorKNN(history=5000),
+        cv2.createBackgroundSubtractorKNN(history=5000),
+        230, 320, 860, 960, 130, 200, 450, 550,
+        callback=on_status_change  # Передаем функцию обратного вызова
+    )
+
+    tracks = {
+        'Путь 5': track_5,
+    }
+
+    capture = cv2.VideoCapture('data/videos/your_video.mp4')  # Укажите путь к вашему видео
+
+    while True:
+        ret, frame = capture.read()
+        #time.sleep(5)
+        if not ret:
+            # Достигнут конец видео, перематываем на начало
+            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
+
+        for track in tracks.values():
+            track.show_frame(frame)
+            print(track.is_free)
+            # Статус путей обновляется через callback
+
+        # Опционально: если вы хотите отображать видео
+       # cv2.imshow('Frame', frame)
+        #if cv2.waitKey(1) & 0xFF == ord('q'):
+        #    break
+
+    capture.release()
+    #cv2.destroyAllWindows()
+# Функция для запуска модели в отдельном потоке
+def start_video_processing():
+    run_video_processing()
+
 @app.get("/rails", response_model=List[schemas.Rail])
-def get_rails(db: Session = Depends(get_db)):
+async def get_rails(db: Session = Depends(get_db)):
     rails = db.query(models.Rail).all()
     return rails
 
